@@ -275,6 +275,13 @@ h1 {
   margin-bottom: 20px;
 }
 
+.history-fields {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
 .item-field {
   display: grid;
   gap: 12px;

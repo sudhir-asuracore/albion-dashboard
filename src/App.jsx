@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   HOSTS,
   buildGoldUrl,
@@ -48,6 +48,33 @@ const summarizePrices = (entries) => {
     buyAverage: average(buy),
     sellMin: sell.length ? Math.min(...sell) : null,
     sellMax: sell.length ? Math.max(...sell) : null
+  };
+};
+
+const summarizeHistoryEntry = (entry) => {
+  if (!entry || !Array.isArray(entry.data) || entry.data.length === 0) {
+    return {
+      avg_price: entry?.avg_price ?? null,
+      min_price: entry?.min_price ?? null,
+      max_price: entry?.max_price ?? null,
+      data_points: entry?.data_points ?? null,
+      timeScale: entry?.timescale ?? entry?.time_scale ?? entry?.timeScale ?? null
+    };
+  }
+
+  const avgPrices = entry.data.map((item) => item?.avg_price).filter(Number.isFinite);
+  const minPrices = entry.data.map((item) => item?.min_price).filter(Number.isFinite);
+  const maxPrices = entry.data.map((item) => item?.max_price).filter(Number.isFinite);
+  const average = (list) =>
+    list.length ? list.reduce((sum, val) => sum + val, 0) / list.length : null;
+  const avg = average(avgPrices);
+
+  return {
+    avg_price: avg === null ? null : Math.round(avg),
+    min_price: minPrices.length ? Math.min(...minPrices) : null,
+    max_price: maxPrices.length ? Math.max(...maxPrices) : null,
+    data_points: entry?.data_points ?? entry.data.length,
+    timeScale: entry?.timescale ?? entry?.time_scale ?? entry?.timeScale ?? null
   };
 };
 
@@ -181,6 +208,7 @@ export default function App() {
   const [itemCatalog, setItemCatalog] = useState([]);
   const [itemCatalogStatus, setItemCatalogStatus] = useState("idle");
   const [itemCatalogError, setItemCatalogError] = useState("");
+  const [itemDropdownOpen, setItemDropdownOpen] = useState(false);
   const [recentPresets, setRecentPresets] = useState([]);
   const [presetPanels, setPresetPanels] = useState({
     quick: true,
@@ -199,6 +227,7 @@ export default function App() {
   const [prices, setPrices] = useState([]);
   const [history, setHistory] = useState([]);
   const [gold, setGold] = useState([]);
+  const itemFieldRef = useRef(null);
 
   const summary = useMemo(() => summarizePrices(prices), [prices]);
   const matchingItems = useMemo(() => {
@@ -277,6 +306,23 @@ export default function App() {
     window.localStorage.setItem(PRESET_PANEL_STATE_KEY, JSON.stringify(presetPanels));
   }, [presetPanels]);
 
+  useEffect(() => {
+    if (!itemDropdownOpen) return;
+    const handleOutsideClick = (event) => {
+      const target = event.target;
+      if (!itemFieldRef.current || !target) return;
+      if (!itemFieldRef.current.contains(target)) {
+        setItemDropdownOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handleOutsideClick);
+    window.addEventListener("touchstart", handleOutsideClick);
+    return () => {
+      window.removeEventListener("mousedown", handleOutsideClick);
+      window.removeEventListener("touchstart", handleOutsideClick);
+    };
+  }, [itemDropdownOpen]);
+
   const loadItemCatalog = async () => {
     if (itemCatalogStatus === "loading" || itemCatalog.length > 0) {
       return;
@@ -326,6 +372,11 @@ export default function App() {
   const handleSearchChange = (event) => {
     const value = event.target.value;
     setItemSearch(value);
+    if (value.trim()) {
+      setItemDropdownOpen(true);
+    } else {
+      setItemDropdownOpen(false);
+    }
     if (value.trim().length >= 2) {
       loadItemCatalog();
     }
@@ -337,12 +388,19 @@ export default function App() {
     if (matchingItems.length === 0) return;
     addItemIds([matchingItems[0].id]);
     setItemSearch("");
+    setItemDropdownOpen(false);
+  };
+
+  const handleSearchFocus = () => {
+    setItemDropdownOpen(true);
+    loadItemCatalog();
   };
 
   const handleAddMatches = () => {
     if (matchingItems.length === 0) return;
     addItemIds(matchingItems.map((entry) => entry.id));
     setItemSearch("");
+    setItemDropdownOpen(false);
   };
 
   const applyLocationSuggestion = (city) => {
@@ -482,13 +540,13 @@ export default function App() {
             </div>
 
             <div className="form-grid">
-              <div className="item-field">
+              <div className="item-field" ref={itemFieldRef}>
                 <label>
                   Search by name
                   <input
                     value={itemSearch}
                     onChange={handleSearchChange}
-                    onFocus={loadItemCatalog}
+                    onFocus={handleSearchFocus}
                     onKeyDown={handleSearchKeyDown}
                     placeholder="e.g. Adept's Bag, T6 ore, Elder's"
                   />
@@ -517,29 +575,43 @@ export default function App() {
                     >
                       Add matches
                     </button>
-                    <button type="button" onClick={() => setItemSearch("")}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setItemSearch("");
+                        setItemDropdownOpen(false);
+                      }}
+                    >
                       Clear
                     </button>
                   </div>
                 </div>
-                <div className="item-search-results">
-                  {itemSearch.trim() &&
-                    itemCatalogStatus === "ready" &&
-                    matchingItems.length === 0 && (
-                      <div className="item-search-empty">No matching items.</div>
-                    )}
-                  {matchingItems.slice(0, 12).map((entry) => (
-                    <div key={entry.id} className="item-search-result">
-                      <div>
-                        <strong>{entry.id}</strong>
-                        <small>{entry.name}</small>
+                {itemDropdownOpen && (
+                  <div className="item-search-results">
+                    {itemSearch.trim() &&
+                      itemCatalogStatus === "ready" &&
+                      matchingItems.length === 0 && (
+                        <div className="item-search-empty">No matching items.</div>
+                      )}
+                    {matchingItems.slice(0, 12).map((entry) => (
+                      <div key={entry.id} className="item-search-result">
+                        <div>
+                          <strong>{entry.id}</strong>
+                          <small>{entry.name}</small>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            addItemIds([entry.id]);
+                            setItemDropdownOpen(false);
+                          }}
+                        >
+                          Add
+                        </button>
                       </div>
-                      <button type="button" onClick={() => addItemIds([entry.id])}>
-                        Add
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
               <label className="location-field">
                 Cities / Locations
@@ -571,7 +643,7 @@ export default function App() {
                 />
               </label>
               {tab === "history" && (
-                <>
+                <div className="history-fields">
                   <label>
                     Start date
                     <input
@@ -598,7 +670,7 @@ export default function App() {
                       <option value="24">Day</option>
                     </select>
                   </label>
-                </>
+                </div>
               )}
               {tab === "gold" && (
                 <label>
@@ -702,22 +774,26 @@ export default function App() {
                   {history.length === 0 && (
                     <div className="table-row empty">No history data yet.</div>
                   )}
-                  {history.map((entry, index) => (
-                    <div
-                      key={`${entry.item_id}-${entry.location}-${index}`}
-                      className="table-row"
-                    >
-                      <span>{entry.item_id}</span>
-                      <span>{entry.location}</span>
-                      <span>{formatNumber(entry.avg_price)}</span>
-                      <span>
-                        {formatNumber(entry.min_price)} /{" "}
-                        {formatNumber(entry.max_price)}
-                      </span>
-                      <span>{formatNumber(entry.data_points)}</span>
-                      <span>{formatTimeScale(entry?.timescale ?? timeScale)}</span>
-                    </div>
-                  ))}
+                  {history.map((entry, index) => {
+                    const summary = summarizeHistoryEntry(entry);
+                    const locationLabel = entry.location ?? entry.city ?? "—";
+                    return (
+                      <div
+                        key={`${entry.item_id}-${entry.location}-${index}`}
+                        className="table-row"
+                      >
+                        <span>{entry.item_id}</span>
+                        <span>{locationLabel}</span>
+                        <span>{formatNumber(summary.avg_price)}</span>
+                        <span>
+                          {formatNumber(summary.min_price)} /{" "}
+                          {formatNumber(summary.max_price)}
+                        </span>
+                        <span>{formatNumber(summary.data_points)}</span>
+                        <span>{formatTimeScale(summary.timeScale ?? timeScale)}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
